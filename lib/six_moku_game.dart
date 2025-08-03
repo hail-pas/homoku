@@ -160,20 +160,18 @@ class _SixMokuGameState extends State<SixMokuGame> {
       tempFirstMoves.add([row, col]);
       selectedFirstMoveCount++;
 
-      if (selectedFirstMoveCount == 2) {
-        // 检查是否获胜
-        bool hasWon = false;
-        for (var pos in tempFirstMoves) {
-          if (_checkWin(pos[0], pos[1], currentPlayer)) {
-            gameOver = true;
-            gameStatus = '${_playerName(currentPlayer)}获胜！';
-            _showWinDialog(currentPlayer);
-            hasWon = true;
-            break;
-          }
-        }
-        
-        if (!hasWon) {
+      // 每下一子都检查是否获胜
+      bool hasWon = false;
+      if (_checkWin(row, col, currentPlayer)) {
+        gameOver = true;
+        gameStatus = '${_playerName(currentPlayer)}获胜！';
+        _showWinDialog(currentPlayer);
+        hasWon = true;
+      }
+
+      if (!hasWon) {
+        if (selectedFirstMoveCount == 2) {
+          // 两子都下完了，检查平局并切换玩家
           if (_isBoardFull()) {
             gameOver = true;
             gameStatus = '平局！';
@@ -184,9 +182,9 @@ class _SixMokuGameState extends State<SixMokuGame> {
             currentPlayer = currentPlayer == Player.black ? Player.white : Player.black;
             gameStatus = '${_playerName(currentPlayer)}回合 - 请下两子';
           }
+        } else {
+          gameStatus = '${_playerName(currentPlayer)}回合 - 还需下 ${2 - selectedFirstMoveCount} 子';
         }
-      } else {
-        gameStatus = '${_playerName(currentPlayer)}回合 - 还需下 ${2 - selectedFirstMoveCount} 子';
       }
     });
   }
