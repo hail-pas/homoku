@@ -19,7 +19,7 @@ class _SixMokuGameState extends State<SixMokuGame> {
   late List<List<Player>> board;
   Player currentPlayer = Player.black;
   bool gameOver = false;
-  String gameStatus = '黑棋先行 - 第一手请下两子';
+  String gameStatus = '黑棋先行 - 第一手请下一子';
   List<List<int>>? firstMovePositions;
   bool isFirstMove = true;
   int selectedFirstMoveCount = 0;
@@ -38,7 +38,7 @@ class _SixMokuGameState extends State<SixMokuGame> {
     );
     currentPlayer = Player.black;
     gameOver = false;
-    gameStatus = '黑棋先行 - 第一手请下两子';
+    gameStatus = '黑棋先行 - 第一手请下一子';
     firstMovePositions = null;
     isFirstMove = true;
     selectedFirstMoveCount = 0;
@@ -117,7 +117,38 @@ class _SixMokuGameState extends State<SixMokuGame> {
         tempFirstMoves.removeWhere((pos) => pos[0] == row && pos[1] == col);
         board[row][col] = Player.none;
         selectedFirstMoveCount--;
-        gameStatus = '黑棋先行 - 还需下 ${2 - selectedFirstMoveCount} 子';
+        gameStatus = '黑棋先行 - 第一手请下一子';
+      });
+      return;
+    }
+
+    if (selectedFirstMoveCount >= 1) return;
+
+    setState(() {
+      board[row][col] = currentPlayer;
+      tempFirstMoves.add([row, col]);
+      selectedFirstMoveCount++;
+
+      if (selectedFirstMoveCount == 1) {
+        // 第一手完成
+        firstMovePositions = List.from(tempFirstMoves);
+        isFirstMove = false;
+        currentPlayer = Player.white;
+        gameStatus = '白棋回合 - 请下两子';
+        tempFirstMoves.clear();
+        selectedFirstMoveCount = 0;
+      }
+    });
+  }
+
+  void _handleRegularMove(int row, int col) {
+    if (tempFirstMoves.any((pos) => pos[0] == row && pos[1] == col)) {
+      // 取消选择
+      setState(() {
+        tempFirstMoves.removeWhere((pos) => pos[0] == row && pos[1] == col);
+        board[row][col] = Player.none;
+        selectedFirstMoveCount--;
+        gameStatus = '${_playerName(currentPlayer)}回合 - 还需下 ${2 - selectedFirstMoveCount} 子';
       });
       return;
     }
@@ -130,39 +161,33 @@ class _SixMokuGameState extends State<SixMokuGame> {
       selectedFirstMoveCount++;
 
       if (selectedFirstMoveCount == 2) {
-        // 第一手完成
-        firstMovePositions = List.from(tempFirstMoves);
-        isFirstMove = false;
-        currentPlayer = Player.white;
-        gameStatus = '白棋回合';
-        tempFirstMoves.clear();
-        selectedFirstMoveCount = 0;
+        // 检查是否获胜
+        bool hasWon = false;
+        for (var pos in tempFirstMoves) {
+          if (_checkWin(pos[0], pos[1], currentPlayer)) {
+            gameOver = true;
+            gameStatus = '${_playerName(currentPlayer)}获胜！';
+            _showWinDialog(currentPlayer);
+            hasWon = true;
+            break;
+          }
+        }
+        
+        if (!hasWon) {
+          if (_isBoardFull()) {
+            gameOver = true;
+            gameStatus = '平局！';
+            _showDrawDialog();
+          } else {
+            tempFirstMoves.clear();
+            selectedFirstMoveCount = 0;
+            currentPlayer = currentPlayer == Player.black ? Player.white : Player.black;
+            gameStatus = '${_playerName(currentPlayer)}回合 - 请下两子';
+          }
+        }
       } else {
-        gameStatus = '黑棋先行 - 还需下 ${2 - selectedFirstMoveCount} 子';
+        gameStatus = '${_playerName(currentPlayer)}回合 - 还需下 ${2 - selectedFirstMoveCount} 子';
       }
-    });
-  }
-
-  void _handleRegularMove(int row, int col) {
-    setState(() {
-      board[row][col] = currentPlayer;
-
-      if (_checkWin(row, col, currentPlayer)) {
-        gameOver = true;
-        gameStatus = '${_playerName(currentPlayer)}获胜！';
-        _showWinDialog(currentPlayer);
-        return;
-      }
-
-      if (_isBoardFull()) {
-        gameOver = true;
-        gameStatus = '平局！';
-        _showDrawDialog();
-        return;
-      }
-
-      currentPlayer = currentPlayer == Player.black ? Player.white : Player.black;
-      gameStatus = '${_playerName(currentPlayer)}回合';
     });
   }
 
@@ -383,7 +408,7 @@ class _SixMokuGameState extends State<SixMokuGame> {
                     ),
                   ],
                 ),
-                if (isFirstMove)
+                if (!gameOver)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     decoration: BoxDecoration(
@@ -391,7 +416,7 @@ class _SixMokuGameState extends State<SixMokuGame> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      '$selectedFirstMoveCount/2',
+                      isFirstMove ? '$selectedFirstMoveCount/1' : '$selectedFirstMoveCount/2',
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -470,8 +495,8 @@ class _SixMokuGameState extends State<SixMokuGame> {
               children: [
                 Text('游戏规则：', style: TextStyle(fontWeight: FontWeight.bold)),
                 SizedBox(height: 8),
-                Text('1. 第一手黑棋同时下两子'),
-                Text('2. 之后双方轮流下一子'),
+                Text('1. 第一手黑棋下一子'),
+                Text('2. 之后双方轮流下两子'),
                 Text('3. 先连成6子者获胜'),
                 Text('4. 棋盘满时为平局'),
               ],
