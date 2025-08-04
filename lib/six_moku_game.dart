@@ -11,7 +11,7 @@ class SixMokuGame extends StatefulWidget {
 }
 
 class _SixMokuGameState extends State<SixMokuGame> {
-  int boardSize = 15;
+  int boardSize = 19;
   static const int winCount = 6;
   static const int minBoardSize = 10;
   static const int maxBoardSize = 20;
@@ -19,11 +19,15 @@ class _SixMokuGameState extends State<SixMokuGame> {
   late List<List<Player>> board;
   Player currentPlayer = Player.black;
   bool gameOver = false;
-  String gameStatus = '黑棋先行 - 第一手请下一子';
+  String gameStatus = '黑棋先行 - 第一手必须下在棋盘中心';
   List<List<int>>? firstMovePositions;
   bool isFirstMove = true;
   int selectedFirstMoveCount = 0;
   List<List<int>> tempFirstMoves = [];
+
+  // 悔棋相关变量
+  List<Map<String, dynamic>> moveHistory = [];
+  bool canUndo = false;
 
   @override
   void initState() {
@@ -38,11 +42,13 @@ class _SixMokuGameState extends State<SixMokuGame> {
     );
     currentPlayer = Player.black;
     gameOver = false;
-    gameStatus = '黑棋先行 - 第一手请下一子';
+    gameStatus = '黑棋先行 - 第一手必须下在棋盘中心';
     firstMovePositions = null;
     isFirstMove = true;
     selectedFirstMoveCount = 0;
     tempFirstMoves = [];
+    moveHistory.clear();
+    canUndo = false;
   }
 
   void _showBoardSizeDialog() {
@@ -103,6 +109,9 @@ class _SixMokuGameState extends State<SixMokuGame> {
   void _handleCellTap(int row, int col) {
     if (gameOver || board[row][col] != Player.none) return;
 
+    // 黑棋第一手强制下在中心
+    if (isFirstMove && (row != 9 || col != 9)) return;
+
     if (isFirstMove) {
       _handleFirstMove(row, col);
     } else {
@@ -110,34 +119,39 @@ class _SixMokuGameState extends State<SixMokuGame> {
     }
   }
 
-  void _handleFirstMove(int row, int col) {
-    if (tempFirstMoves.any((pos) => pos[0] == row && pos[1] == col)) {
-      // 取消选择
-      setState(() {
-        tempFirstMoves.removeWhere((pos) => pos[0] == row && pos[1] == col);
-        board[row][col] = Player.none;
-        selectedFirstMoveCount--;
-        gameStatus = '黑棋先行 - 第一手请下一子';
-      });
-      return;
-    }
+  void _saveToHistory(int row, int col, Player player, bool wasFirstMove, int moveCount) {
+    moveHistory.add({
+      'row': row,
+      'col': col,
+      'player': player,
+      'wasFirstMove': wasFirstMove,
+      'moveCount': moveCount,
+      'currentPlayer': currentPlayer,
+      'gameStatus': gameStatus,
+      'isFirstMove': isFirstMove,
+      'selectedFirstMoveCount': selectedFirstMoveCount,
+      'tempFirstMoves': List.from(tempFirstMoves),
+    });
+    canUndo = true;
+  }
 
-    if (selectedFirstMoveCount >= 1) return;
+  void _handleFirstMove(int row, int col) {
+    if (row != 9 || col != 9) return; // 必须下在中心
+
+    _saveToHistory(row, col, currentPlayer, true, 1);
 
     setState(() {
       board[row][col] = currentPlayer;
       tempFirstMoves.add([row, col]);
       selectedFirstMoveCount++;
 
-      if (selectedFirstMoveCount == 1) {
-        // 第一手完成
-        firstMovePositions = List.from(tempFirstMoves);
-        isFirstMove = false;
-        currentPlayer = Player.white;
-        gameStatus = '白棋回合 - 请下两子';
-        tempFirstMoves.clear();
-        selectedFirstMoveCount = 0;
-      }
+      // 第一手完成
+      firstMovePositions = List.from(tempFirstMoves);
+      isFirstMove = false;
+      currentPlayer = Player.white;
+      gameStatus = '白棋回合 - 请下两子';
+      tempFirstMoves.clear();
+      selectedFirstMoveCount = 0;
     });
   }
 
@@ -154,6 +168,8 @@ class _SixMokuGameState extends State<SixMokuGame> {
     }
 
     if (selectedFirstMoveCount >= 2) return;
+
+    _saveToHistory(row, col, currentPlayer, false, selectedFirstMoveCount + 1);
 
     setState(() {
       board[row][col] = currentPlayer;
@@ -186,6 +202,30 @@ class _SixMokuGameState extends State<SixMokuGame> {
           gameStatus = '${_playerName(currentPlayer)}回合 - 还需下 ${2 - selectedFirstMoveCount} 子';
         }
       }
+    });
+  }
+
+  void _undoMove() {
+    if (moveHistory.isEmpty) return;
+
+    setState(() {
+      final lastMove = moveHistory.removeLast();
+
+      // 恢复棋盘状态
+      board[lastMove['row']][lastMove['col']] = Player.none;
+
+      // 恢复游戏状态
+      currentPlayer = lastMove['currentPlayer'];
+      gameStatus = lastMove['gameStatus'];
+      isFirstMove = lastMove['isFirstMove'];
+      selectedFirstMoveCount = lastMove['selectedFirstMoveCount'];
+      tempFirstMoves = List<List<int>>.from(lastMove['tempFirstMoves']);
+
+      // 更新悔棋按钮状态
+      canUndo = moveHistory.isNotEmpty;
+
+      // 游戏重新开始
+      gameOver = false;
     });
   }
 
@@ -307,9 +347,8 @@ class _SixMokuGameState extends State<SixMokuGame> {
             TextButton(
               onPressed: () {
                 Navigator.of(context).pop();
-                _resetGame();
               },
-              child: const Text('重新开始'),
+              child: const Text('确认'),
             ),
           ],
         );
@@ -346,9 +385,8 @@ class _SixMokuGameState extends State<SixMokuGame> {
             TextButton(
               onPressed: () {
                 Navigator.of(context).pop();
-                _resetGame();
               },
-              child: const Text('重新开始'),
+              child: const Text('确认'),
             ),
           ],
         );
@@ -367,6 +405,11 @@ class _SixMokuGameState extends State<SixMokuGame> {
             icon: const Icon(Icons.grid_3x3, color: Colors.white),
             onPressed: _showBoardSizeDialog,
             tooltip: '设置棋盘大小',
+          ),
+          IconButton(
+            icon: const Icon(Icons.undo, color: Colors.white),
+            onPressed: canUndo ? _undoMove : null,
+            tooltip: '悔棋',
           ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
@@ -435,51 +478,49 @@ class _SixMokuGameState extends State<SixMokuGame> {
                     color: Colors.brown[300],
                     border: Border.all(color: Colors.brown[700]!, width: 2),
                   ),
-                  child: GridView.builder(
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: boardSize,
+                  child: CustomPaint(
+                    painter: BoardPainter(boardSize: boardSize),
+                    child: GridView.builder(
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: boardSize,
+                        childAspectRatio: 1.0,
+                      ),
+                      itemCount: boardSize * boardSize,
+                      itemBuilder: (context, index) {
+                        final row = index ~/ boardSize;
+                        final col = index % boardSize;
+                        
+                        return GestureDetector(
+                          onTap: gameOver ? null : () => _handleCellTap(row, col),
+                          child: Container(
+                            color: Colors.transparent,
+                            child: Center(
+                              child: board[row][col] != Player.none
+                                  ? Container(
+                                      width: 28,
+                                      height: 28,
+                                      decoration: BoxDecoration(
+                                        color: _getCellColor(board[row][col]),
+                                        shape: BoxShape.circle,
+                                        border: board[row][col] == Player.white
+                                            ? Border.all(color: Colors.black, width: 2)
+                                            : Border.all(color: Colors.grey[300]!, width: 1),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withValues(alpha: 0.3),
+                                            blurRadius: 2,
+                                            offset: const Offset(1, 1),
+                                          ),
+                                        ],
+                                      ),
+                                    )
+                                  : null,
+                            ),
+                          ),
+                        );
+                      },
                     ),
-                    itemCount: boardSize * boardSize,
-                    itemBuilder: (context, index) {
-                      final row = index ~/ boardSize;
-                      final col = index % boardSize;
-                      return GestureDetector(
-                        onTap: () => _handleCellTap(row, col),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: _getCellBackgroundColor(row, col),
-                            border: Border.all(
-                              color: Colors.brown[600]!,
-                              width: 0.5,
-                            ),
-                          ),
-                          child: Center(
-                            child: Container(
-                              width: 24,
-                              height: 24,
-                              decoration: BoxDecoration(
-                                color: _getCellColor(board[row][col]),
-                                shape: BoxShape.circle,
-                                border: board[row][col] == Player.white
-                                    ? Border.all(color: Colors.black, width: 2)
-                                    : (board[row][col] == Player.black
-                                        ? Border.all(color: Colors.grey[300]!, width: 1)
-                                        : null),
-                                boxShadow: board[row][col] != Player.none
-                                    ? [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(alpha: 0.3),
-                                          blurRadius: 2,
-                                          offset: const Offset(1, 1),
-                                        ),
-                                      ]
-                                    : null,
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
                   ),
                 ),
               ),
@@ -493,7 +534,7 @@ class _SixMokuGameState extends State<SixMokuGame> {
               children: [
                 Text('游戏规则：', style: TextStyle(fontWeight: FontWeight.bold)),
                 SizedBox(height: 8),
-                Text('1. 第一手黑棋下一子'),
+                Text('1. 黑棋第一手必须下在棋盘中心'),
                 Text('2. 之后双方轮流下两子'),
                 Text('3. 先连成6子者获胜'),
                 Text('4. 棋盘满时为平局'),
@@ -504,4 +545,62 @@ class _SixMokuGameState extends State<SixMokuGame> {
       ),
     );
   }
+}
+
+class BoardPainter extends CustomPainter {
+  final int boardSize;
+
+  BoardPainter({required this.boardSize});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.brown[600]!
+      ..strokeWidth = 1.0;
+
+    final cellSize = size.width / boardSize;
+    final halfCellSize = cellSize / 2;
+
+    // 绘制竖线
+    for (int i = 0; i < boardSize; i++) {
+      final x = i * cellSize + halfCellSize;
+      canvas.drawLine(
+        Offset(x, halfCellSize),
+        Offset(x, size.height - halfCellSize),
+        paint,
+      );
+    }
+
+    // 绘制横线
+    for (int i = 0; i < boardSize; i++) {
+      final y = i * cellSize + halfCellSize;
+      canvas.drawLine(
+        Offset(halfCellSize, y),
+        Offset(size.width - halfCellSize, y),
+        paint,
+      );
+    }
+
+    // 绘制天元和星位
+    final starPaint = Paint()
+      ..color = Colors.brown[800]!
+      ..strokeWidth = 3.0;
+
+    final starPositions = [
+      [3, 3], [3, 9], [3, 15],
+      [9, 3], [9, 9], [9, 15],
+      [15, 3], [15, 9], [15, 15],
+    ];
+
+    for (final pos in starPositions) {
+      if (pos[0] < boardSize && pos[1] < boardSize) {
+        final x = pos[1] * cellSize + halfCellSize;
+        final y = pos[0] * cellSize + halfCellSize;
+        canvas.drawCircle(Offset(x, y), 3.0, starPaint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
